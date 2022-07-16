@@ -83,7 +83,7 @@ const reactiveHandlers = {
 function reactive(raw) {
   return new Proxy(raw, reactiveHandlers);
 }
-// 设置代理是为了在使用数据对象的 get 和 set 方法时，能够自动地设置 dep 对象。
+// 设置代理是为了在使用数据对象的 get 和 set 方法时，能够自动地设置 dep 对象。PS:顺带处理了数组的情况
 
 const state = reactive({ count: 0 });
 watchEffect(() => {

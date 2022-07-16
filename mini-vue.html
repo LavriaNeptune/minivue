@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Document</title>
+  </head>
+  <body>
+    <div id="app"></div>
+    <script>
+      // === h mount patch 来自于 render.js ===
+
+      function h(tag, props, children) {
+        return {
+          tag,
+          props,
+          children,
+        };
+      }
+
+      // 模拟实现 Vue3 中用于将虚拟 DOM 转换为真实 DOM ,并将 DOM 渲染在一个容器元素中的 mount 函数
+
+      function mount(vnode, container) {
+        // 依据虚拟 DOM 的 tag 属性生成一个对应的真实 DOM 元素...
+        const el = (vnode.el = document.createElement(vnode.tag)); // 将真实 DOM 对象的引用保存一份在虚拟 DOM node 的对象上...便于日后 patch 时的对比工作
+        if (vnode.props) {
+          // 为了简化模型,假设传入参数均为 attribute，忽略事件监听器、props 的可能..
+          for (const key in vnode.props) {
+            const value = vnode.props[key];
+            // 新增处理时间监听器的代码 ↓
+            if (key.startsWith('on')) {
+              el.addEventListener(key.slice(2).toLowerCase(), value);
+            } else {
+              el.setAttribute(key, value);
+            }
+          }
+        }
+        if (vnode.children) {
+          // 此处仅考虑子节点为文本节点或元素节点的其中一种，忽略两者可能并存的情况...
+          if (typeof vnode.children === 'string') {
+            el.textContent = vnode.children;
+          } else {
+            // 规定：对于嵌套的元素节点，建议以数组的结构形式传入，便于此处使用 forEach 方法进行遍历...
+            vnode.children.forEach((child) => {
+              mount(child, el); // 这里用到了迭代...
+            });
+          }
+        }
+        // 将处理完后的 el 作为容器元素的子节点插入...
+        container.appendChild(el);
+      }
+
+      // 模拟实现 Vue3 中用于对比两个虚拟 DOM 节点的 patch 函数
+
+      function patch(oldNode, newNode) {
+        // 首先判断元素标签是否存在改变...
+        if (oldNode.tag === newNode.tag) {
+          // tag 未发生改变时，对 props 的处理 ->
+          const el = (newNode.el = oldNode.el); // oldNode.el 还要给 newNode.el 一份，因为以后的 newNode.el 就是下一次 patch 的 oldNode 了...
+          // 如果虚拟 DOM 存在属性配置，则取出，否则使用备选的空对象 {}
+          const oldProps = oldNode.props || {};
+          const newProps = newNode.props || {};
+
+          // 处理新增属性、或是已有属性值变更的情况
+          for (const key in newProps) {
+            const oldValue = oldProps[key];
+            const newValue = newProps[key];
+            if (newValue !== oldValue) {
+              // 处理这样的情况:新旧两个属性都存在，但是值不同，则更新属性值...
+              el.setAttribute(key, newValue);
+            }
+          }
+          // 处理属性删除情况
+          for (const key in oldProps) {
+            if (!(key in newProps)) {
+              // 处理这样的情况:删除旧节点中不存在的属性...
+              el.removeAttribute(key);
+            }
+          }
+
+          // children 处理
+          const oldChildren = oldNode.children;
+          const newChildren = newNode.children;
+          // 四种子元素情况：文本节点、元素节点(数组) 通过 if 嵌套表示处理方式...
+          if (typeof newChildren === 'string') {
+            if (typeof oldChildren === 'string') {
+              if (newChildren !== oldChildren) {
+                el.textContent = newChildren;
+              }
+            } else {
+              el.textContent = newChildren;
+            }
+          } else {
+            if (typeof oldChildren === 'string') {
+              el.innerHTML = '';
+              newChildren.forEach((child) => {
+                mount(child, el);
+              });
+            } else {
+              const commonLength = Math.min(
+                oldChildren.length,
+                newChildren.length,
+              );
+              for (let i = 0; i < commonLength; i++) {
+                patch(oldChildren[i], newChildren[i]);
+              }
+              if (newChildren.length > oldChildren.length) {
+                newChildren.slice(oldChildren.length).forEach((child) => {
+                  mount(child, el);
+                });
+              } else if (newChildren.length < oldChildren.length) {
+                oldChildren.slice(newChildren.length).forEach((child) => {
+                  el.removeChild(child.el);
+                });
+              }
+            }
+          }
+        } else {
+        }
+      }
+
+      // === watchEffect reactive 来自于 deps.js ===
+
+      let activeEffect = null;
+      // 用来中转事件的一个变量
+
+      // ↓ 经典的发布订阅模式类 ↓
+      class Dep {
+        subscribes = new Set();
+        depend() {
+          if (activeEffect) {
+            this.subscribes.add(activeEffect);
+          }
+        }
+        notify() {
+          this.subscribes.forEach((effect) => {
+            effect();
+          });
+        }
+      }
+
+      function watchEffect(effect) {
+        activeEffect = effect;
+        effect();
+        activeEffect = null;
+      }
+
+      // ↓ 在响应式原理代码基础上，实现响应式代码 ↓
+
+      //#region Object.defineProperty 实现（Vue 旧版本实现方式）
+
+      // function reactive(raw) {
+      //   // raw 是一个状态对象...
+      //   Object.keys(raw).forEach((key) => {
+      //     const dep = new Dep();
+      //     // 这里使用到里闭包...
+      //     let value = raw[key];
+      //     Object.defineProperty(raw, key, {
+      //       get() {
+      //         dep.depend();
+      //         return value;
+      //       },
+      //       set(newValue) {
+      //         value = newValue;
+      //         dep.notify();
+      //       },
+      //     });
+      //   });
+      //   return raw;
+      // }
+
+      //#endregion
+
+      const targetMap = new WeakMap();
+
+      // 如果数据对象失去引用,弱映射所对应的 Map 对象(key -> dep)也会被自动回收
+
+      function getDep(target, key) {
+        let depsMap = targetMap.get(target);
+        if (!depsMap) {
+          depsMap = new Map();
+          targetMap.set(target, depsMap);
+        }
+        let dep = depsMap.get(key);
+        if (!dep) {
+          dep = new Dep();
+          depsMap.set(key, dep);
+        }
+        return dep;
+      }
+
+      const reactiveHandlers = {
+        get(target, key, receiver) {
+          const dep = getDep(target, key);
+          dep.depend();
+          return Reflect.get(target, key, receiver);
+        },
+        set(target, key, value, receiver) {
+          const dep = getDep(target, key);
+          const result = Reflect.set(target, key, value, receiver);
+          dep.notify();
+          return result;
+        },
+      };
+
+      function reactive(raw) {
+        return new Proxy(raw, reactiveHandlers);
+      }
+
+      // vue 组件模型
+
+      const myComponent = {
+        data: reactive({ count: 0 }),
+        // 添加了响应性的 data 数据对象 -> 注意:关注点要集中在 data 的属性上(如 count 上
+        render() {
+          return h(
+            'div',
+            {
+              onClick: () => {
+                this.data.count++;
+              },
+            },
+            // 需要去 mount 方法中新增处理时间监听器的代码。
+            String(this.data.count),
+          );
+          // 注意 patch 模拟算法中仅比对字符串格式的数据...如果不加上 String(),patch 算法不会生效。
+        },
+        // 调用组件的 render 函数 -> 得到虚拟 DOM 节点对象
+      };
+      function mountApp(component, container) {
+        // 需要考虑第一次挂载和挂载后更新的两种情况,不过都通过 watchEffect 监控数据所导致的挂载 DOM 节点的行为
+        let isMounted = false;
+        watchEffect(() => {
+          if (!isMounted) {
+            prevVdom = component.render();
+            mount(prevVdom, container);
+            isMounted = true;
+          } else {
+            const newVdom = component.render();
+            patch(prevVdom, newVdom);
+            // diff 算法是有意义的 -> 仅更改 vdom 存在变化或者需要新增的内容 -> 数据改变触发重渲染 -> 渲染最小程度的 DOM
+            prevVdom = newVdom;
+          }
+        });
+      }
+      mountApp(myComponent, document.getElementById('app'));
+      // 成功的话:打开本 html 文档,会显示整数 0,并且每次点击一次数字,数值会 +1
+    </script>
+  </body>
+</html>
